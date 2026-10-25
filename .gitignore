@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# Seller data must never be committed. This repository is public; the pricing
+# strategy it would otherwise contain is commercially sensitive.
+# ---------------------------------------------------------------------------
+data/*.csv
+data/*.xlsx
+data/*.xls
+*.csv
+*.xlsx
+*.xls
+
+# Keep the empty data directory in the tree
+!data/.gitkeep
+
+# OS / editor noise
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/

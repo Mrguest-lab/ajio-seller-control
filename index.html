@@ -1,0 +1,643 @@
+<title>AJIO Seller Control</title>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+/* Layout concept: fixed left rail of operational sections; each section opens with a
+   row of status tiles, then the detail table. Data-tool palette — blue accent on
+   slightly cool neutrals, with reserved status hues for catalog health. */
+:root{
+  --bg:#f4f5f7; --surface:#fcfcfb; --surface-2:#eef0f3;
+  --fg:#0b0b0b; --fg-2:#52514e; --muted:#898781;
+  --line:#e1e0d9; --rule:#c3c2b7;
+  --accent:#2a78d6; --accent-soft:#cde2fb;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --radius:10px;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --bg:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+  --fg:#ffffff; --fg-2:#c3c2b7; --muted:#898781;
+  --line:#2c2c2a; --rule:#383835;
+  --accent:#3987e5; --accent-soft:#184f95;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300;
+  color-scheme:dark; } }
+:root[data-theme="dark"]{
+  --bg:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+  --fg:#ffffff; --fg-2:#c3c2b7; --muted:#898781;
+  --line:#2c2c2a; --rule:#383835;
+  --accent:#3987e5; --accent-soft:#184f95;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300;
+  color-scheme:dark; }
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);margin:0;line-height:1.45}
+h1,h2,h3{text-wrap:balance;margin:0}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100%}
+.rail{background:var(--surface);border-right:1px solid var(--line);padding-block:18px;position:sticky;top:env(safe-area-inset-top,0px);align-self:start;max-height:100vh;overflow:auto}
+.brand{padding:0 18px 14px;border-bottom:1px solid var(--line);margin-bottom:10px}
+.brand b{display:block;font-size:14px;letter-spacing:-.01em}
+.brand span{display:block;font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px}
+.navbtn{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:none;border:0;color:var(--fg-2);
+  font:inherit;font-size:13px;padding:7px 18px;cursor:pointer;border-left:2px solid transparent}
+.navbtn:hover{background:var(--surface-2);color:var(--fg)}
+.navbtn[aria-current="true"]{color:var(--accent);border-left-color:var(--accent);background:var(--surface-2);font-weight:600}
+.navbtn .dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto}
+.dot.live{background:var(--good)} .dot.part{background:var(--warn)} .dot.off{background:var(--rule)}
+.railnote{font-size:10.5px;color:var(--muted);padding:12px 18px 0;line-height:1.5;border-top:1px solid var(--line);margin-top:12px}
+
+main{padding:22px 24px 60px;min-width:0}
+.head{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:4px}
+.head h2{font-size:20px;letter-spacing:-.02em}
+.sub{color:var(--fg-2);font-size:13px;margin:4px 0 18px;max-width:72ch}
+
+.badge{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;
+  padding:3px 7px;border-radius:5px;border:1px solid var(--line);color:var(--fg-2);white-space:nowrap}
+.badge.live{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,transparent)}
+.badge.part{color:var(--serious);border-color:color-mix(in srgb,var(--serious) 45%,transparent)}
+.badge.off{color:var(--muted)}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:10px;margin-bottom:20px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:13px 14px;min-width:0}
+.tile .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.tile .v{font-size:25px;font-weight:600;letter-spacing:-.02em;margin-top:7px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tile .d{font-size:11px;color:var(--fg-2);margin-top:5px;line-height:1.4}
+.tile.flag{border-left:3px solid var(--crit)}
+.tile.ok{border-left:3px solid var(--good)}
+.tile.na .v{color:var(--muted);font-size:16px;font-weight:500;letter-spacing:0}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:16px;min-width:0}
+.panel h3{font-size:14px;margin-bottom:3px;letter-spacing:-.01em}
+.panel .ph{font-size:12px;color:var(--muted);margin-bottom:14px}
+
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+  padding:8px 10px;border-bottom:1px solid var(--rule);background:var(--surface-2);white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+.sku{font-family:var(--mono);font-size:11.5px}
+
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-family:var(--mono);
+  padding:2px 6px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.pill.crit{color:var(--crit)} .pill.good{color:var(--good)} .pill.mut{color:var(--muted)}
+
+.empty{border:1px dashed var(--rule);border-radius:var(--radius);padding:24px;background:var(--surface)}
+.empty h4{font-size:14px;margin:0 0 6px}
+.empty p{font-size:13px;color:var(--fg-2);margin:0 0 14px;max-width:62ch}
+.need{display:flex;flex-wrap:wrap;gap:7px}
+.need span{font-family:var(--mono);font-size:11px;background:var(--surface-2);border:1px solid var(--line);
+  padding:4px 8px;border-radius:6px;color:var(--fg-2)}
+
+.bars{display:flex;flex-direction:column;gap:7px}
+.bar{display:grid;grid-template-columns:132px minmax(0,1fr) 54px;gap:10px;align-items:center;font-size:12px}
+.bar .lbl{color:var(--fg-2);font-size:11.5px}
+.bar .track{background:var(--surface-2);border-radius:4px;height:16px;overflow:hidden}
+.bar .fill{height:100%;border-radius:4px 2px 2px 4px}
+.bar .val{text-align:right;font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
+
+.act{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+.act:last-child{border-bottom:0}
+.act .sev{width:3px;align-self:stretch;border-radius:2px;flex:0 0 auto}
+.sev.p1{background:var(--crit)} .sev.p2{background:var(--serious)} .sev.p3{background:var(--rule)}
+.act .body{min-width:0;flex:1}
+.act .t{font-size:13px;font-weight:600}
+.act .w{font-size:12px;color:var(--fg-2);margin-top:3px}
+
+.btn{font:inherit;font-size:12.5px;padding:7px 13px;border-radius:7px;border:1px solid var(--line);
+  background:var(--surface-2);color:var(--fg);cursor:pointer}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.pri{background:var(--accent);color:#fff;border-color:var(--accent)}
+.btn:focus-visible,.navbtn:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.drop{border:1px dashed var(--rule);border-radius:8px;padding:22px;text-align:center;font-size:12.5px;color:var(--fg-2)}
+.drop.on{border-color:var(--accent);background:var(--accent-soft)}
+
+.srcnote{font-size:11px;color:var(--muted);margin-top:10px}
+code{font-family:var(--mono);font-size:11.5px;background:var(--surface-2);padding:1px 5px;border-radius:4px}
+
+.qcform{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.qcform label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block}
+.qcform input{width:100%;margin-top:5px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;
+  background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px}
+
+/* first-run */
+.onboard{max-width:620px;margin:6vh auto;padding-inline:4px}
+.onboard h1{font-size:22px;letter-spacing:-.02em;margin-bottom:8px}
+.onboard p{font-size:13.5px;color:var(--fg-2);margin:0 0 18px}
+.steps{font-size:12.5px;color:var(--fg-2);padding-left:18px;margin:0 0 18px;line-height:1.7}
+
+@media (max-width:860px){
+  .shell{grid-template-columns:1fr}
+  .rail{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line);
+    display:flex;gap:2px;overflow-x:auto;padding:10px 12px}
+  .brand,.railnote{display:none}
+  .navbtn{white-space:nowrap;border-left:0;border-bottom:2px solid transparent;padding:7px 11px}
+  .navbtn[aria-current="true"]{border-bottom-color:var(--accent);background:none}
+  main{padding:18px 16px 50px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div id="app"><div class="onboard"><h1>Starting up…</h1></div></div>
+
+<script>
+/* ============================================================================
+   AJIO Seller Control — an operations dashboard for AJIO (Dropship/VMS) sellers.
+
+   PRIVACY: this page ships with NO seller data. Everything you load stays in
+   your own browser (localStorage) and is never uploaded anywhere. The repository
+   is deliberately data-free so it can be public without exposing pricing.
+   ========================================================================== */
+
+const RUPEE = '₹';
+const fmt   = n => n==null||isNaN(n) ? '—' : Math.round(n).toLocaleString('en-IN');
+const money = n => n==null||isNaN(n) ? '—' : RUPEE+Math.round(n).toLocaleString('en-IN');
+const pct1  = n => n==null||isNaN(n) ? '—' : n.toFixed(1)+'%';
+const esc   = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const LS_DATA='ajio_td_rows', LS_QC='ajio_qc', LS_BRAND='ajio_brand';
+
+const store = {
+  get(k,d){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } },
+  set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); return true; }catch(e){ return false; } },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} },
+};
+
+const AJIO_REPORTS = [
+  ['Dropship Order Report','Orders, Fulfilment, Product Performance','order status, qty, MRP, Seller TD, selling price, SLA'],
+  ['Dropship Shipment Report','Fulfilment timings','dispatch, carrier, AWB'],
+  ['Dropship Pendency Report','Action Centre','orders awaiting dispatch'],
+  ['Dropship Rtv Report','Returns, Return Loss','return to vendor records'],
+  ['Dropship Payment Report','Settlements','payouts and deductions'],
+  ['Credit Note Report','Returns, Settlements','refund / credit notes'],
+  ['Invoice Report','Settlements','invoice values'],
+  ['Dropship GST Report','Settlements','tax entries'],
+];
+
+let ROWS=[], STATE=null, QC=null, BRAND='', IMPORTED={};
+
+/* ---------- CSV ---------- */
+function parseCSV(text){
+  const rows=[]; let row=[], cell='', q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else q=false; } else cell+=c; }
+    else if(c==='"') q=true;
+    else if(c===','){ row.push(cell); cell=''; }
+    else if(c==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
+    else if(c!=='\r') cell+=c;
+  }
+  if(cell.length||row.length){ row.push(cell); rows.push(row); }
+  if(!rows.length) return [];
+  const head=rows.shift().map(h=>h.trim());
+  return rows.filter(r=>r.length>1).map(r=>Object.fromEntries(head.map((h,i)=>[h,(r[i]??'').trim()])));
+}
+
+/* Accepts either the exported CSV (jioCode/currentTD) or AJIO's own
+   Trade Discount Excel template (JioCode / Default Discount). */
+function normalise(raw){
+  const pick=(o,names)=>{ for(const n of names){ for(const k of Object.keys(o)){ if(k.toLowerCase().replace(/[^a-z]/g,'')===n) return o[k]; } } return undefined; };
+  const num=v=>{ if(v===''||v==null) return null; const n=parseFloat(String(v).replace(/[^0-9.\-]/g,'')); return isNaN(n)?null:n; };
+  return raw.map(o=>{
+    const mrp=num(pick(o,['mrp']));
+    const td =num(pick(o,['currenttd','defaultdiscount','tradediscount','td']));
+    return {
+      jio:  pick(o,['jiocode','articlenumber'])||'',
+      sku:  pick(o,['sellersku','sku'])||'',
+      style:pick(o,['sellerstylecode','stylecode'])||'',
+      mrp, td,
+      price: (mrp!=null&&td!=null) ? +(mrp*(1-td/100)).toFixed(2) : null,
+    };
+  }).filter(r=>r.jio||r.sku);
+}
+
+/* ---------- derive ---------- */
+function derive(recs){
+  const priced=recs.filter(r=>r.td!=null&&r.mrp!=null);
+  const noTd  =recs.filter(r=>r.td==null);
+  const lowTd =priced.filter(r=>r.td<=20);
+  const healthy=priced.filter(r=>r.td>20);
+  const buckets=[
+    ['≤ 5% (at MRP)', r=>r.td<=5,           'var(--crit)'],
+    ['5 – 20%',       r=>r.td>5&&r.td<=20,  'var(--serious)'],
+    ['20 – 40%',      r=>r.td>20&&r.td<=40, 'var(--s4)'],
+    ['40 – 55%',      r=>r.td>40&&r.td<=55, 'var(--s3)'],
+    ['55 – 65%',      r=>r.td>55&&r.td<=65, 'var(--s1)'],
+    ['65 – 75%',      r=>r.td>65&&r.td<=75, 'var(--s5)'],
+    ['> 75%',              r=>r.td>75,           'var(--s2)'],
+  ].map(([label,f,color])=>({label,color,n:priced.filter(f).length}));
+  const avg=(a,f)=>a.length?a.reduce((s,x)=>s+f(x),0)/a.length:null;
+  return {
+    recs,priced,noTd,lowTd,healthy,buckets,
+    total:recs.length,
+    blocked:noTd.length+lowTd.length,
+    blockedPct:recs.length?((noTd.length+lowTd.length)/recs.length)*100:0,
+    avgTd:avg(priced,r=>r.td),
+    avgPrice:avg(priced,r=>r.price),
+    avgPriceHealthy:avg(healthy,r=>r.price),
+    avgPriceLow:avg(lowTd,r=>r.price),
+    minTd:priced.length?Math.min(...priced.map(r=>r.td)):null,
+    maxTd:priced.length?Math.max(...priced.map(r=>r.td)):null,
+  };
+}
+
+/* ---------- view helpers ---------- */
+const tile=(k,v,d,cls='')=>`<div class="tile ${cls}"><div class="k">${k}</div><div class="v">${v}</div>${d?`<div class="d">${d}</div>`:''}</div>`;
+const na  =(k,need)=>`<div class="tile na"><div class="k">${k}</div><div class="v">Not available</div><div class="d">Needs ${esc(need)}</div></div>`;
+
+function emptyState(title,why,reports){
+  return `<div class="empty"><h4>${title}</h4><p>${why}</p>
+    <div class="need">${reports.map(r=>`<span>${esc(r)}</span>`).join('')}</div>
+    <p class="srcnote">Download it in Seller Central under <code>Reporting › View Reports</code>, then load it on the Reports &amp; Imports tab.</p></div>`;
+}
+function barChart(items,total,note){
+  const max=Math.max(...items.map(i=>i.n),1);
+  return `<div class="bars">${items.map(i=>`<div class="bar">
+    <div class="lbl">${i.label}</div>
+    <div class="track"><div class="fill" style="width:${(i.n/max*100).toFixed(1)}%;background:${i.color}"></div></div>
+    <div class="val">${fmt(i.n)}</div></div>`).join('')}</div>
+    ${note?`<div class="srcnote">${note}</div>`:''}`;
+}
+
+const TABS=[
+  ['overview','Overview','live'],['pricing','Pricing &amp; Promotions','live'],
+  ['catalog','Catalog Health','part'],['products','Product Performance','part'],
+  ['orders','Orders','off'],['returns','Returns &amp; Refunds','off'],
+  ['loss','Return Loss','off'],['settle','Settlements','off'],
+  ['inventory','Inventory','off'],['monthly','Monthly &amp; 6-Month','off'],
+  ['actions','Action Centre','live'],['reports','Reports &amp; Imports','live'],
+];
+
+function headOf(title,badge,sub){
+  const cls=badge==='live'?'live':badge==='part'?'part':'off';
+  const txt=badge==='live'?'Your data':badge==='part'?'Partial':'Awaiting report';
+  return `<div class="head"><h2>${title}</h2><span class="badge ${cls}">${txt}</span></div><p class="sub">${sub}</p>`;
+}
+
+/* ---------- views ---------- */
+const VIEWS={
+overview(){const s=STATE;
+  return headOf('Overview','part',
+    'Catalog and pricing figures come from the export you loaded. Sales, returns and settlement figures stay blank until the matching AJIO report is loaded — they are not zero, they are unknown.')
+  +`<div class="tiles">
+    ${tile('Active SKUs',fmt(s.total),'Rows in your export')}
+    ${tile('Sellable now',fmt(s.priced.length-s.lowTd.length),'Discount above 20%','ok')}
+    ${tile('Blocked from selling',fmt(s.blocked),`${pct1(s.blockedPct)} of the catalog`,s.blocked?'flag':'')}
+    ${tile('Average trade discount',pct1(s.avgTd),s.minTd!=null?`Range ${s.minTd.toFixed(0)}% – ${s.maxTd.toFixed(0)}%`:'')}
+    ${tile('Average selling price',money(s.avgPrice),'Where a discount is set')}
+    ${na('Units sold','Dropship Order Report')}
+    ${na('Gross sales','Dropship Order Report')}
+    ${na('Return rate','Dropship Rtv Report')}
+    ${na('Settlement received','Dropship Payment Report')}
+  </div>
+  <div class="panel"><h3>Catalog readiness</h3>
+    <div class="ph">A SKU with no trade discount has no selling price. A SKU near 0% lists at close to full MRP.</div>
+    <p style="font-size:13.5px;max-width:70ch;margin:0 0 12px">
+      <b>${fmt(s.blocked)} of ${fmt(s.total)} SKUs cannot realistically sell.</b>
+      ${fmt(s.noTd.length)} have no trade discount set, and ${fmt(s.lowTd.length)} sit at 20% or below —
+      averaging ${money(s.avgPriceLow)} against ${money(s.avgPriceHealthy)} for the rest of the catalog.</p>
+    ${barChart(s.buckets,s.priced.length,`${fmt(s.priced.length)} SKUs with a trade discount set.`)}
+  </div>`;
+},
+
+pricing(){const s=STATE;
+  const worst=[...s.lowTd].sort((a,b)=>(b.mrp||0)-(a.mrp||0)).slice(0,20);
+  return headOf('Pricing &amp; Promotions','live',
+    'Trade Discount is the percentage off Listing MRP; selling price = MRP × (1 − TD).')
+  +`<div class="tiles">
+    ${tile('Priced SKUs',fmt(s.priced.length),'Have a trade discount')}
+    ${tile('No discount set',fmt(s.noTd.length),'No selling price configured',s.noTd.length?'flag':'')}
+    ${tile('Priced at / near MRP',fmt(s.lowTd.length),'TD at or below 20%',s.lowTd.length?'flag':'')}
+    ${tile('Largest band',s.buckets.reduce((a,b)=>b.n>a.n?b:a,s.buckets[0]).label,'Most SKUs sit here')}
+  </div>
+  ${worst.length?`<div class="panel"><h3>Highest-MRP SKUs stuck near full price</h3>
+    <div class="ph">These carry the most lost revenue per unit.</div>
+    <div class="tw"><table><thead><tr><th>Seller SKU</th><th>JioCode</th><th class="r">MRP</th><th class="r">TD</th><th class="r">Listed at</th><th>Status</th></tr></thead>
+    <tbody>${worst.map(r=>`<tr><td class="sku">${esc(r.sku)||'—'}</td><td class="sku">${esc(r.jio)||'—'}</td>
+      <td class="r num">${money(r.mrp)}</td><td class="r num">${r.td.toFixed(2)}%</td>
+      <td class="r num">${money(r.price)}</td><td><span class="pill crit">unsellable</span></td></tr>`).join('')}</tbody></table></div>
+    <div class="srcnote">Showing the ${worst.length} highest-MRP of ${fmt(s.lowTd.length)} low-discount SKUs.</div></div>`
+   :`<div class="panel"><h3>No low-discount SKUs</h3><div class="ph">Every priced SKU is above 20% TD.</div></div>`}`;
+},
+
+catalog(){const s=STATE,q=QC;
+  const form=`<div class="panel"><h3>Catalog feed health</h3>
+    <div class="ph">AJIO has no catalog-status report, so enter the counts from <code>Catalog › Upload History</code>. Saved in this browser only.</div>
+    <div class="qcform">
+      <div><label for="qc_up">Uploaded</label><input id="qc_up" type="number" min="0" value="${q?q.uploaded:''}"></div>
+      <div><label for="qc_ok">Success (live)</label><input id="qc_ok" type="number" min="0" value="${q?q.success:''}"></div>
+      <div><label for="qc_mq">Manual QC rejected</label><input id="qc_mq" type="number" min="0" value="${q?q.manualQcRejected:''}"></div>
+      <div><label for="qc_sp">In system processing</label><input id="qc_sp" type="number" min="0" value="${q?q.systemProcessing:''}"></div>
+      <div><label for="qc_hs">HSN rejected</label><input id="qc_hs" type="number" min="0" value="${q?q.hsnRejected:''}"></div>
+    </div>
+    <button class="btn pri" id="qcsave">Save counts</button></div>`;
+  if(!q) return headOf('Catalog Health','off','Products that never clear QC never reach the storefront.')+form;
+  const stuck=q.manualQcRejected+q.hsnRejected;
+  return headOf('Catalog Health','part','Products that never clear QC never reach the storefront.')
+  +`<div class="tiles">
+    ${tile('Uploaded',fmt(q.uploaded),'Latest feed batch')}
+    ${tile('Live (success)',fmt(q.success),'Cleared all stages','ok')}
+    ${tile('Manual QC rejected',fmt(q.manualQcRejected),'Correct and re-upload',q.manualQcRejected?'flag':'')}
+    ${tile('Stuck in processing',fmt(q.systemProcessing),'Still in progress')}
+    ${tile('HSN rejected',fmt(q.hsnRejected),'Tax classification issue',q.hsnRejected?'flag':'')}
+  </div>
+  <div class="panel"><h3>Where the catalog is losing products</h3>
+    <div class="ph">QC rejections stop listings going live; pricing gaps stop live listings selling.</div>
+    ${barChart([
+      {label:'Live and priced',n:Math.max(s.priced.length-s.lowTd.length,0),color:'var(--good)'},
+      {label:'No discount set',n:s.noTd.length,color:'var(--crit)'},
+      {label:'Priced at MRP',n:s.lowTd.length,color:'var(--serious)'},
+      {label:'QC rejected',n:stuck,color:'var(--s2)'},
+      {label:'Still processing',n:q.systemProcessing,color:'var(--s4)'},
+    ],s.total,'QC counts are per upload batch; pricing counts are per active SKU — different denominators, not added together.')}
+  </div>`+form;
+},
+
+products(){const s=STATE;
+  return headOf('Product Performance','part','Catalog and price columns are live. Units, revenue, returns and margin need the order and return reports plus your own cost file.')
+  +`<div class="tiles">
+    ${tile('SKUs in catalog',fmt(s.total),'From your export')}
+    ${na('Units delivered','Dropship Order Report')}
+    ${na('Net sales','Order + Credit Note reports')}
+    ${na('Contribution margin','Order report + your cost file')}
+  </div>
+  <div class="panel"><h3>Catalog by price band</h3>
+    <div class="ph">Until orders load, this is what you offer — not what sells.</div>
+    ${barChart([
+      {label:`Under ${money(500)}`,n:s.priced.filter(r=>r.price<500).length,color:'var(--s1)'},
+      {label:`${money(500)}–${money(900)}`,n:s.priced.filter(r=>r.price>=500&&r.price<900).length,color:'var(--s3)'},
+      {label:`${money(900)}–${money(1500)}`,n:s.priced.filter(r=>r.price>=900&&r.price<1500).length,color:'var(--s4)'},
+      {label:`${money(1500)}–${money(2500)}`,n:s.priced.filter(r=>r.price>=1500&&r.price<2500).length,color:'var(--s5)'},
+      {label:`Over ${money(2500)}`,n:s.priced.filter(r=>r.price>=2500).length,color:'var(--s2)'},
+    ],s.priced.length)}
+  </div>
+  <div class="panel"><h3>Profitability</h3><div class="ph">Blocked on cost data.</div>
+  ${emptyState('No unit costs loaded','Margin, return loss and any "should I discount this?" answer need your cost per SKU. AJIO never provides this — it comes from your own purchase records.',
+    ['Your cost master (SKU → unit cost)','Dropship Order Report','Dropship Payment Report'])}</div>`;
+},
+
+orders(){return headOf('Orders','off','Order lines, fulfilment ageing and dispatch SLA.')
+  +emptyState('No order report loaded','Load the Dropship Order Report and this tab fills automatically. If it returns no rows for a period you know had sales, the problem is reporting rather than demand — check the place-of-business filter and the date window.',
+    ['Dropship Order Report','Dropship Shipment Report','Dropship Pendency Report'])
+  +`<div class="panel" style="margin-top:16px"><h3>What this tab shows once data loads</h3>
+    <div class="ph">Mapped from the report's real columns.</div>
+    <p style="font-size:12.5px;color:var(--fg-2);max-width:70ch;margin:0">
+    New / awaiting dispatch / shipped / delivered / cancelled counts, processing and delivery times from
+    <code>Cust Order Date</code> → <code>FWD Shipment Date</code> → invoice, plus SLA breaches from
+    <code>Estimated Dispatch Date</code> and <code>SLA Status</code>.</p></div>`;
+},
+
+returns(){return headOf('Returns &amp; Refunds','off','Return records, reasons, stages and refund value.')
+  +emptyState('No return report loaded','Return rate needs both a numerator and a denominator — returns from the RTV / Credit Note reports, and delivered units from the order report. With neither loaded, any percentage here would be fabricated.',
+    ['Dropship Rtv Report','Credit Note Report','Dropship Order Report'])
+  +`<div class="panel" style="margin-top:16px"><h3>How the rate is calculated</h3>
+    <div class="ph">Stated up front so the number is auditable.</div>
+    <p style="font-size:12.5px;color:var(--fg-2);max-width:70ch;margin:0">
+    Unit-based: returned units ÷ delivered units × 100. Order-based: returned orders ÷ delivered orders × 100.
+    Returns are de-duplicated to one record per return ID first, because these reports carry one row per status change —
+    counting rows would inflate the rate. Both sides use the same date window.</p></div>`;
+},
+
+loss(){return headOf('Return Loss','off','Cash and economic impact of returns.')
+  +emptyState('Needs returns, settlement and cost data together',
+   'A refund is not automatically a loss — resellable stock comes back and some fees reverse. Real loss needs the refund value, the fee reversal, the reverse-logistics charge and your unit cost. Missing any one turns this into guesswork.',
+   ['Dropship Rtv Report','Credit Note Report','Dropship Payment Report','Your cost master']);},
+
+settle(){return headOf('Settlements','off','Payouts, deductions and reconciliation against orders.')
+  +emptyState('No payment report loaded','Reconciliation compares what each order should have paid against what actually settled. It needs the payment report and the order report together.',
+   ['Dropship Payment Report','Invoice Report','Dropship GST Report','Dropship Order Report'])
+  +`<div class="panel" style="margin-top:16px"><h3>Reconciliation rule</h3>
+    <div class="ph">Applied when both reports are present.</div>
+    <p style="font-size:12.5px;color:var(--fg-2);max-width:70ch;margin:0">
+    Expected net = order value − (commission + fees + shipping + other deductions + refunds + discount).
+    Variance = settled amount − expected net, flagged beyond ${RUPEE}1 of rounding. A variance is a prompt to
+    investigate, not proof of underpayment: timing differences and partial settlements look the same.</p></div>`;},
+
+inventory(){return headOf('Inventory','off','Stock on hand, low-stock alerts and cover.')
+  +`<div class="panel"><h3>Dropship model — check before assuming stock lives here</h3>
+    <div class="ph">There is no inventory report in the AJIO Reporting menu.</div>
+    <p style="font-size:12.5px;color:var(--fg-2);max-width:70ch;margin:0 0 12px">
+    The eight available reports are order, payment, tax or return based. Stock is under
+    <code>Products › Inventory</code> in Seller Central. Under dropship, AJIO holds no stock for you, so
+    “available” means what you can fulfil — a number only your own system knows.</p>
+    ${emptyState('No inventory export loaded','Export from Products › Inventory, or load your own warehouse stock file.',
+      ['AJIO Products › Inventory export','Your own stock file'])}</div>`;},
+
+monthly(){return headOf('Monthly &amp; 6-Month','off','Month-on-month sales, returns and growth.')
+  +emptyState('No month with order data yet','Growth is (current − previous) ÷ previous × 100. With no order rows there is no previous period, and a percentage against zero would be meaningless rather than simply large.',
+   ['Dropship Order Report — one file per month','Dropship Payment Report'])
+  +`<div class="panel" style="margin-top:16px"><h3>Suggested backfill</h3>
+    <div class="ph">The report window is capped, so pull month by month.</div>
+    <p style="font-size:12.5px;color:var(--fg-2);max-width:70ch;margin:0">
+    Seller Central limits each run to a short date range. Pull the Dropship Order Report once per calendar month for
+    the last six months and load each file here; they accumulate rather than overwrite.</p></div>`;},
+
+actions(){const s=STATE,q=QC;
+  const acts=[];
+  if(s.noTd.length) acts.push(['p1',`Set a trade discount on ${fmt(s.noTd.length)} SKUs`,
+    'These have no TD at all, so they have no selling price. This is the largest block of dead catalog.','Pricing']);
+  if(s.lowTd.length) acts.push(['p1',`Re-price ${fmt(s.lowTd.length)} SKUs sitting at or near MRP`,
+    `Average listed price ${money(s.avgPriceLow)} against ${money(s.avgPriceHealthy)} for the rest of the catalog. A cluster at exactly 1.00% TD is the signature of a bulk upload that skipped them.`,'Pricing']);
+  if(q&&(q.manualQcRejected||q.hsnRejected)) acts.push(['p1',`Fix ${fmt(q.manualQcRejected)} Manual QC and ${fmt(q.hsnRejected)} HSN rejections`,
+    'Rejected products never reach the storefront. Download the rejection file in Catalog › Upload History, correct, re-upload.','Catalog']);
+  if(q&&q.systemProcessing) acts.push(['p2',`Chase ${fmt(q.systemProcessing)} products stuck in System Processing`,
+    'If they have not cleared since the last batch, raise it with AJIO support.','Catalog']);
+  acts.push(['p2','Confirm order flow is being reported',
+    'Run the Dropship Order Report for a month you know had sales. An empty result there means a reporting or filter problem, not absent demand.','Verify']);
+  acts.push(['p3','Load your cost master','Nothing on margin, profitability or true return loss can be computed without unit costs.','Data']);
+  acts.push(['p3','Backfill six months of order reports','Required before any growth or trend figure can be shown.','Data']);
+  return headOf('Action Centre','live','Ranked by revenue at stake, from your loaded catalog. Highest impact first.')
+    +`<div class="panel">${acts.map(([sev,t,w,cat])=>`<div class="act"><div class="sev ${sev}"></div>
+      <div class="body"><div class="t">${t}</div><div class="w">${w}</div></div><span class="badge">${cat}</span></div>`).join('')}</div>`;
+},
+
+reports(){
+  const loaded=Object.keys(IMPORTED);
+  return headOf('Reports &amp; Imports','live','Files are parsed in your browser and never leave this device.')
+  +`<div class="panel"><h3>Load a report</h3>
+    <div class="ph">Accepts .xlsx and .csv. The report type is detected from the column headers.</div>
+    <div class="drop" id="drop"><p style="margin:0 0 10px">Drag a file here, or</p>
+      <button class="btn pri" id="pick">Choose file</button>
+      <input type="file" id="file" accept=".xlsx,.xls,.csv" multiple hidden></div>
+    <div id="implog" style="margin-top:12px"></div>
+    ${loaded.length?`<div class="srcnote">Loaded this session: ${loaded.map(k=>`<code>${esc(k)}</code>`).join(' ')}</div>`:''}
+  </div>
+  <div class="panel"><h3>The eight reports an AJIO dropship account exposes</h3>
+    <div class="ph">Seller Central › Reporting › View Reports. There is no inventory or advertising report in this list.</div>
+    <div class="tw"><table><thead><tr><th>Report</th><th>Unlocks</th><th>Key fields</th></tr></thead>
+    <tbody>${AJIO_REPORTS.map(([n,u,f])=>`<tr><td><b>${n}</b></td><td>${u}</td><td style="color:var(--fg-2)">${f}</td></tr>`).join('')}</tbody></table></div>
+    <p class="srcnote">AJIO publishes no seller API, so this stays a download-and-load workflow. A static page cannot reach
+    seller.ajio.com directly — browsers block cross-site requests, and any button claiming otherwise would not work.</p>
+  </div>
+  <div class="panel"><h3>Your data</h3><div class="ph">Stored only in this browser.</div>
+    <p style="font-size:12.5px;color:var(--fg-2);margin:0 0 12px">${fmt(ROWS.length)} catalog rows held locally${BRAND?` for ${esc(BRAND)}`:''}.</p>
+    <button class="btn" id="reload">Replace catalog export</button>
+    <button class="btn" id="wipe" style="margin-left:8px">Clear all local data</button></div>`;
+},
+};
+
+/* ---------- import ---------- */
+const SIGNATURES=[
+  ['Trade Discount export',['jiocode','currenttd']],
+  ['AJIO price template',['jiocode','default discount']],
+  ['Dropship Order Report',['cust order no','order qty']],
+  ['Dropship Pendency Report',['cust order no','sla status']],
+  ['Dropship Payment Report',['settlement','commission']],
+  ['Credit Note Report',['credit note']],
+  ['Invoice Report',['invoice no','invoice value']],
+  ['Dropship Rtv Report',['return']],
+  ['Myntra price file',['style id','article no']],
+];
+function detect(headers){
+  const h=headers.map(x=>String(x).toLowerCase().trim());
+  let best=null,score=0;
+  for(const [name,sig] of SIGNATURES){
+    const s=sig.filter(k=>h.some(x=>x.includes(k))).length;
+    if(s>score&&s>=Math.min(2,sig.length)){score=s;best=name;}
+  }
+  return best;
+}
+async function readSheet(file){
+  const buf=await file.arrayBuffer();
+  const wb=XLSX.read(buf,{type:'array'});
+  const ws=wb.Sheets[wb.SheetNames[0]];
+  const rows=XLSX.utils.sheet_to_json(ws,{header:1,blankrows:false,defval:''});
+  if(!rows.length) throw new Error('file has no rows');
+  let hi=0,bestN=0;
+  for(let i=0;i<Math.min(rows.length,12);i++){const n=rows[i].filter(c=>String(c).trim()).length; if(n>bestN){bestN=n;hi=i;}}
+  const headers=rows[hi].map(String);
+  const data=rows.slice(hi+1).filter(r=>r.some(c=>String(c).trim()));
+  return {headers,data,objects:data.map(r=>Object.fromEntries(headers.map((h,i)=>[h,r[i]??''])))};
+}
+async function handleFiles(files){
+  const log=document.getElementById('implog'); if(!log) return;
+  for(const f of files){
+    try{
+      const {headers,data,objects}=await readSheet(f);
+      const type=detect(headers)||'Unrecognised layout';
+      let extra='';
+      if(type==='Trade Discount export'||type==='AJIO price template'){
+        const recs=normalise(objects);
+        if(recs.length){ ROWS=recs; STATE=derive(recs); store.set(LS_DATA,recs); extra=' Catalog refreshed.'; }
+      }
+      IMPORTED[type]={name:f.name,rows:data.length};
+      log.insertAdjacentHTML('beforeend',`<div class="act"><div class="sev ${type.startsWith('Unrec')?'p2':'p3'}"></div>
+        <div class="body"><div class="t">${esc(f.name)}</div><div class="w">Detected as <b>${esc(type)}</b> — ${fmt(data.length)} rows, ${headers.length} columns.${
+        type.startsWith('Unrec')?' Headers did not match a known report; nothing was loaded.':esc(extra)}</div></div></div>`);
+    }catch(err){
+      log.insertAdjacentHTML('beforeend',`<div class="act"><div class="sev p1"></div><div class="body">
+        <div class="t">${esc(f.name)}</div><div class="w">Could not read this file: ${esc(err.message)}</div></div></div>`);
+    }
+  }
+}
+
+/* ---------- wiring ---------- */
+function wire(tab){
+  if(tab==='reports'){
+    const drop=document.getElementById('drop'),input=document.getElementById('file'),pick=document.getElementById('pick');
+    if(drop){
+      pick.onclick=()=>input.click();
+      input.onchange=()=>handleFiles([...input.files]);
+      ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on');}));
+      ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('on');}));
+      drop.addEventListener('drop',ev=>handleFiles([...ev.dataTransfer.files]));
+    }
+    const rl=document.getElementById('reload'); if(rl) rl.onclick=()=>{ store.del(LS_DATA); location.reload(); };
+    const wp=document.getElementById('wipe');   if(wp) wp.onclick=()=>{ store.del(LS_DATA); store.del(LS_QC); store.del(LS_BRAND); location.reload(); };
+  }
+  if(tab==='catalog'){
+    const b=document.getElementById('qcsave');
+    if(b) b.onclick=()=>{
+      const v=id=>{const n=parseInt(document.getElementById(id).value,10); return isNaN(n)?0:n;};
+      QC={uploaded:v('qc_up'),success:v('qc_ok'),manualQcRejected:v('qc_mq'),systemProcessing:v('qc_sp'),hsnRejected:v('qc_hs')};
+      store.set(LS_QC,QC); show('catalog');
+    };
+  }
+}
+
+function renderRail(active){
+  return `<nav class="rail" aria-label="Sections">
+    <div class="brand"><b>${esc(BRAND)||'AJIO Seller'}</b><span>Control panel</span></div>
+    ${TABS.map(([id,label,st])=>`<button class="navbtn" data-tab="${id}" aria-current="${id===active}"><span class="dot ${st}"></span>${label}</button>`).join('')}
+    <div class="railnote"><b style="color:var(--good)">●</b> your data &nbsp; <b style="color:var(--warn)">●</b> partial &nbsp; <b style="color:var(--rule)">●</b> awaiting report</div></nav>`;
+}
+
+function show(tab){
+  const fn=VIEWS[tab]||VIEWS.overview;
+  document.getElementById('app').innerHTML=`<div class="shell">${renderRail(tab)}<main>${fn()}</main></div>`;
+  document.querySelectorAll('.navbtn').forEach(b=>b.onclick=()=>show(b.dataset.tab));
+  wire(tab);
+  try{ history.replaceState(null,'','#'+tab); }catch(e){}
+}
+
+/* ---------- first run ---------- */
+function onboarding(msg){
+  document.getElementById('app').innerHTML=`<div class="onboard">
+    <h1>AJIO Seller Control</h1>
+    <p>An operations dashboard for AJIO dropship sellers. It holds no data of its own — load your own export and
+    everything stays in this browser.${msg?' '+esc(msg):''}</p>
+    <ol class="steps">
+      <li>In AJIO Seller Central, open <code>Products › Pricing</code>.</li>
+      <li>On the <b>Download</b> tab, click <b>Download Trade Discount Excel File</b>.</li>
+      <li>When the batch shows <b>Completed</b>, download it and drop the file below.</li>
+    </ol>
+    <div class="drop" id="drop"><p style="margin:0 0 10px">Drag the Trade Discount file here, or</p>
+      <button class="btn pri" id="pick">Choose file</button>
+      <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden></div>
+    <div id="implog" style="margin-top:14px"></div>
+    <p class="srcnote">Nothing is uploaded. The file is parsed locally and kept in this browser's storage only.</p>
+  </div>`;
+  const drop=document.getElementById('drop'),input=document.getElementById('file'),pick=document.getElementById('pick');
+  const load=async files=>{
+    for(const f of files){
+      try{
+        const {objects}=await readSheet(f);
+        const recs=normalise(objects);
+        if(!recs.length) throw new Error('no JioCode/SKU rows found — is this the Trade Discount file?');
+        ROWS=recs; STATE=derive(recs); store.set(LS_DATA,recs);
+        if(!BRAND){ BRAND=''; }
+        show('overview'); return;
+      }catch(err){
+        document.getElementById('implog').innerHTML=
+          `<div class="act"><div class="sev p1"></div><div class="body"><div class="t">${esc(f.name)}</div>
+           <div class="w">Could not read this file: ${esc(err.message)}</div></div></div>`;
+      }
+    }
+  };
+  pick.onclick=()=>input.click();
+  input.onchange=()=>load([...input.files]);
+  ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('on');}));
+  ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('on');}));
+  drop.addEventListener('drop',ev=>load([...ev.dataTransfer.files]));
+}
+
+/* ---------- boot ---------- */
+(async function(){
+  QC=store.get(LS_QC,null);
+  BRAND=store.get(LS_BRAND,'')||'';
+  const saved=store.get(LS_DATA,null);
+  if(saved&&saved.length){ ROWS=saved; STATE=derive(saved); }
+  else{
+    // optional local data file, intentionally absent from the public repo
+    try{
+      const res=await fetch('data/ajio_td.csv',{cache:'no-store'});
+      if(res.ok){
+        const recs=normalise(parseCSV(await res.text()));
+        if(recs.length){ ROWS=recs; STATE=derive(recs); }
+      }
+    }catch(e){ /* no local data file — expected */ }
+  }
+  if(!STATE){ onboarding(); return; }
+  const start=(location.hash||'').replace('#','');
+  show(VIEWS[start]?start:'overview');
+})();
+</script>
