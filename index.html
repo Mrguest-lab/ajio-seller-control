@@ -646,6 +646,9 @@ async function handleFiles(files){
 
 /* ---------- price calculator wiring ---------- */
 const nb=(k,t)=>`<div class="nb ${k}">${t}</div>`;
+/* Prices here must show paise: a 2-decimal TD rarely lands on a whole rupee,
+   and rounding the display would hide the gap from the target. */
+const money2=n=>n==null||isNaN(n)?'—':RUPEE+Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
 function startDefault(){ // 1 day ahead at 10:00, comfortably past AJIO's 3-hour rule
   const d=new Date(Date.now()+86400000);
   const p=n=>String(n).padStart(2,'0');
@@ -664,7 +667,7 @@ function priceCol(title,r,target){
   const off=Math.abs(r.delta)>=0.01;
   return `<div class="col"><h5>${title}</h5>
     <div class="big">${r.td.toFixed(2)}%</div>
-    <div class="meta">Lists at <b>${money(r.actual)}</b>${off?` — ${r.delta>0?'+':''}${r.delta.toFixed(2)} vs your ${money(target)} target, the closest two decimals allow`:''}</div></div>`;
+    <div class="meta">Lists at <b>${money2(r.actual)}</b>${off?` — ${r.delta>0?'+':''}${r.delta.toFixed(2)} against your ${money2(target)} target, the closest two decimals reach`:''}</div></div>`;
 }
 function renderSingle(){
   const out=document.getElementById('c_out'); if(!out) return;
@@ -676,7 +679,7 @@ function renderSingle(){
   const pv=parseFloat(document.getElementById('c_promo').value);
   const def=tdFromPrice(rec.mrp,isNaN(dv)?null:dv);
   const promo=isNaN(pv)?null:tdFromPrice(rec.mrp,pv);
-  const cur=rec.td!=null?`currently ${rec.td.toFixed(2)}% → ${money(rec.price)}`:'no trade discount set';
+  const cur=rec.td!=null?`currently ${rec.td.toFixed(2)}% → ${money2(rec.price)}`:'no trade discount set';
   out.innerHTML=`<div class="res">
       <div class="top"><b>${esc(rec.sku||rec.jio)}</b><span>JioCode ${esc(rec.jio)}</span>
         <span>MRP <b>${money(rec.mrp)}</b></span><span>${cur}</span></div>
@@ -716,9 +719,9 @@ function renderBulk(){
       <tbody>${ok.map(r=>`<tr>
         <td class="sku">${esc(r.rec.sku)||'—'}</td><td class="sku">${esc(r.rec.jio)}</td>
         <td class="r num">${money(r.rec.mrp)}</td>
-        <td class="r num">${r.def.td.toFixed(2)}%</td><td class="r num">${money(r.def.actual)}</td>
+        <td class="r num">${r.def.td.toFixed(2)}%</td><td class="r num">${money2(r.def.actual)}</td>
         <td class="r num">${r.promo?r.promo.td.toFixed(2)+'%':'—'}</td>
-        <td class="r num">${r.promo?money(r.promo.actual):'—'}</td></tr>`).join('')}</tbody></table></div>
+        <td class="r num">${r.promo?money2(r.promo.actual):'—'}</td></tr>`).join('')}</tbody></table></div>
     ${bad.length?nb('crit',`<b>${bad.length} line${bad.length>1?'s':''} could not be used:</b><br>${bad.map(b=>esc(b.line)+' — '+esc(b.err)).join('<br>')}`):''}
     <div class="srcnote">${fmt(ok.length)} row${ok.length===1?'':'s'} ready. Start time is set to <code>${START}</code> — change it in the file if you need a different slot.</div>`;
 }
