@@ -129,6 +129,28 @@ code{font-family:var(--mono);font-size:11.5px;background:var(--surface-2);paddin
 .qcform input{width:100%;margin-top:5px;padding:7px 9px;border:1px solid var(--line);border-radius:6px;
   background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px}
 
+/* ---------- price calculator ---------- */
+.cgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.cgrid label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block}
+.cgrid input,textarea{width:100%;margin-top:6px;padding:9px 10px;border:1px solid var(--line);border-radius:7px;
+  background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:14px}
+textarea{margin-top:0;font-size:12.5px;line-height:1.6;resize:vertical}
+.cgrid input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.crow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.res{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.res .top{background:var(--surface-2);padding:10px 13px;display:flex;flex-wrap:wrap;gap:12px;align-items:baseline}
+.res .top b{font-family:var(--mono);font-size:12.5px}
+.res .top span{font-size:11.5px;color:var(--fg-2)}
+.res .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.res .col{padding:13px;border-right:1px solid var(--line)}
+.res .col:last-child{border-right:0}
+.res .col h5{margin:0 0 8px;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.res .big{font-family:var(--mono);font-size:27px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.res .meta{font-size:11.5px;color:var(--fg-2);margin-top:6px;line-height:1.5}
+.nb{font-size:12px;border-radius:7px;padding:9px 11px;margin-top:10px;border:1px solid currentColor}
+.nb.crit{color:var(--crit)} .nb.warn{color:var(--serious)} .nb.ok{color:var(--good)} .nb.mut{color:var(--muted)}
+.nb b{font-weight:600}
+
 /* first-run */
 .onboard{max-width:620px;margin:6vh auto;padding-inline:4px}
 .onboard h1{font-size:22px;letter-spacing:-.02em;margin-bottom:8px}
@@ -236,8 +258,14 @@ function derive(recs){
     ['> 75%',              r=>r.td>75,           'var(--s2)'],
   ].map(([label,f,color])=>({label,color,n:priced.filter(f).length}));
   const avg=(a,f)=>a.length?a.reduce((s,x)=>s+f(x),0)/a.length:null;
+  // Lookup by JioCode or Seller SKU, for the price calculator.
+  const index=new Map();
+  recs.forEach(r=>{
+    if(r.jio) index.set(String(r.jio).trim().toLowerCase(),r);
+    if(r.sku) index.set(String(r.sku).trim().toLowerCase(),r);
+  });
   return {
-    recs,priced,noTd,lowTd,healthy,buckets,
+    recs,priced,noTd,lowTd,healthy,buckets,index,
     total:recs.length,
     blocked:noTd.length+lowTd.length,
     blockedPct:recs.length?((noTd.length+lowTd.length)/recs.length)*100:0,
@@ -268,8 +296,46 @@ function barChart(items,total,note){
     ${note?`<div class="srcnote">${note}</div>`:''}`;
 }
 
+/* ---------- price → trade discount engine ----------
+   AJIO takes a percentage, not a price. This inverts it:
+     TD = (1 − price / MRP) × 100, rounded to the 2 decimals AJIO accepts.
+   Rounding means an exact target price is not always reachable, so the actual
+   resulting price is always shown back rather than assumed. */
+function tdFromPrice(mrp,price){
+  if(mrp==null||!(mrp>0)) return {err:'MRP is unknown for this product'};
+  if(price==null||isNaN(price)) return {err:'Enter a selling price'};
+  if(price<=0) return {err:'Price must be above zero'};
+  if(price>mrp) return {err:`Price is above MRP of ${money(mrp)} — AJIO has no negative discount`};
+  const exact=(1-price/mrp)*100;
+  const td=Math.round(exact*100)/100;
+  const actual=Math.round(mrp*(1-td/100)*100)/100;
+  return {td,exact,actual,delta:+(actual-price).toFixed(2)};
+}
+/* Median TD this catalog already uses at the same MRP — the sanity check that
+   stands in for margin data we do not have. */
+function bandMedian(mrp){
+  const peers=STATE.healthy.filter(r=>r.mrp===mrp).map(r=>r.td).sort((a,b)=>a-b);
+  return peers.length?{med:peers[Math.floor(peers.length/2)],n:peers.length}:null;
+}
+function lookup(code){
+  if(!code) return null;
+  return STATE.index.get(String(code).trim().toLowerCase())||null;
+}
+const AJIO_HEAD=['JioCode','EAN','Seller Style Code','Seller SKU','MRP','Default Discount',
+  'Default Start Date(dd-MM-yyyy HH:mm:ss)','Promotional Discount',
+  'Start Date(dd-MM-yyyy HH:mm:ss)','End Date(dd-MM-yyyy HH:mm:ss)'];
+function csvCell(v){const s=v==null?'':String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}
+function buildAjioCSV(rows){
+  return [AJIO_HEAD.join(',')].concat(rows.map(r=>[
+    r.rec.jio,r.rec.style,r.rec.style,r.rec.sku,r.rec.mrp,
+    r.def?r.def.td:'', r.def?r.start:'',
+    r.promo?r.promo.td:'', r.promo?r.promoStart:'', r.promo?r.promoEnd:'',
+  ].map(csvCell).join(','))).join('\n');
+}
+
 const TABS=[
   ['overview','Overview','live'],['pricing','Pricing &amp; Promotions','live'],
+  ['calc','Price Calculator','live'],
   ['catalog','Catalog Health','part'],['products','Product Performance','part'],
   ['orders','Orders','off'],['returns','Returns &amp; Refunds','off'],
   ['loss','Return Loss','off'],['settle','Settlements','off'],
@@ -327,6 +393,44 @@ pricing(){const s=STATE;
       <td class="r num">${money(r.price)}</td><td><span class="pill crit">unsellable</span></td></tr>`).join('')}</tbody></table></div>
     <div class="srcnote">Showing the ${worst.length} highest-MRP of ${fmt(s.lowTd.length)} low-discount SKUs.</div></div>`
    :`<div class="panel"><h3>No low-discount SKUs</h3><div class="ph">Every priced SKU is above 20% TD.</div></div>`}`;
+},
+
+calc(){
+  return headOf('Price Calculator','live',
+    'You think in rupees; AJIO wants a percentage. Enter the price you want customers to pay and this gives you the trade discount to type into the portal.')
+  +`<div class="panel"><h3>One product</h3>
+      <div class="ph">Enter a JioCode or Seller SKU, then the price you want. Results update as you type.</div>
+      <div class="cgrid">
+        <div><label for="c_code">JioCode or Seller SKU</label>
+          <input id="c_code" type="text" placeholder="702107904001" autocomplete="off" spellcheck="false"></div>
+        <div><label for="c_def">Everyday price (${RUPEE})</label>
+          <input id="c_def" type="number" min="1" step="1" placeholder="599"></div>
+        <div><label for="c_promo">Promo price (${RUPEE}, optional)</label>
+          <input id="c_promo" type="number" min="1" step="1" placeholder="549"></div>
+      </div>
+      <div id="c_out" style="margin-top:14px"></div>
+    </div>
+    <div class="panel"><h3>Many at once</h3>
+      <div class="ph">One per line: code then price, separated by comma, tab or space. Add a third number for a promo price.</div>
+      <textarea id="c_bulk" rows="6" spellcheck="false" placeholder="702107904001, 599
+702107913001, 599, 549"></textarea>
+      <div class="crow">
+        <button class="btn pri" id="c_run">Calculate</button>
+        <button class="btn" id="c_dl">Download AJIO upload file</button>
+        <button class="btn" id="c_copy">Copy instead</button>
+        <span id="c_msg" class="srcnote" style="margin:0"></span>
+      </div>
+      <div id="c_bulkout" style="margin-top:14px"></div>
+    </div>
+    <div class="panel"><h3>Before you upload</h3>
+      <div class="ph">Three things AJIO enforces that this calculator cannot.</div>
+      <ul style="font-size:12.5px;color:var(--fg-2);margin:0;padding-left:18px;line-height:1.75;max-width:70ch">
+        <li>Only one trade discount is active at a time. A promotional TD overrides the default for its window; outside that window the default applies.</li>
+        <li>Start times must be at least <b>3 hours ahead</b> of when you upload.</li>
+        <li>Rounding to two decimals means an exact rupee target is not always reachable — the achievable price is shown for every row.</li>
+      </ul>
+      <p class="srcnote">This page never sends anything to AJIO. You upload the file yourself under <code>Products › Pricing › Upload</code>.</p>
+    </div>`;
 },
 
 catalog(){const s=STATE,q=QC;
@@ -540,8 +644,113 @@ async function handleFiles(files){
   }
 }
 
+/* ---------- price calculator wiring ---------- */
+const nb=(k,t)=>`<div class="nb ${k}">${t}</div>`;
+function startDefault(){ // 1 day ahead at 10:00, comfortably past AJIO's 3-hour rule
+  const d=new Date(Date.now()+86400000);
+  const p=n=>String(n).padStart(2,'0');
+  return `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()} 10:00:00`;
+}
+function guardRail(rec,td){
+  const b=bandMedian(rec.mrp);
+  if(!b) return nb('mut',`No other product at ${money(rec.mrp)} MRP to compare against — this one is your judgement call.`);
+  const gap=td-b.med;
+  if(gap>10) return nb('warn',`<b>Deeper than you normally go.</b> You price ${b.n} other ${money(rec.mrp)} products at a median ${b.med.toFixed(2)}% — this is ${gap.toFixed(1)} points more. Margin is not checked here because no cost file is loaded.`);
+  if(gap<-10) return nb('warn',`<b>Shallower than you normally go.</b> Your median at ${money(rec.mrp)} is ${b.med.toFixed(2)}%; this is ${Math.abs(gap).toFixed(1)} points less, so it will look expensive beside your own range.`);
+  return nb('ok',`In line with the ${b.n} other products you price at ${money(rec.mrp)} (median ${b.med.toFixed(2)}%).`);
+}
+function priceCol(title,r,target){
+  if(r.err) return `<div class="col"><h5>${title}</h5><div class="meta" style="color:var(--crit)">${esc(r.err)}</div></div>`;
+  const off=Math.abs(r.delta)>=0.01;
+  return `<div class="col"><h5>${title}</h5>
+    <div class="big">${r.td.toFixed(2)}%</div>
+    <div class="meta">Lists at <b>${money(r.actual)}</b>${off?` — ${r.delta>0?'+':''}${r.delta.toFixed(2)} vs your ${money(target)} target, the closest two decimals allow`:''}</div></div>`;
+}
+function renderSingle(){
+  const out=document.getElementById('c_out'); if(!out) return;
+  const code=document.getElementById('c_code').value.trim();
+  if(!code){ out.innerHTML=nb('mut','Enter a JioCode or Seller SKU to begin.'); return; }
+  const rec=lookup(code);
+  if(!rec){ out.innerHTML=nb('crit',`Nothing in your catalog matches “${esc(code)}”. Check the JioCode or Seller SKU.`); return; }
+  const dv=parseFloat(document.getElementById('c_def').value);
+  const pv=parseFloat(document.getElementById('c_promo').value);
+  const def=tdFromPrice(rec.mrp,isNaN(dv)?null:dv);
+  const promo=isNaN(pv)?null:tdFromPrice(rec.mrp,pv);
+  const cur=rec.td!=null?`currently ${rec.td.toFixed(2)}% → ${money(rec.price)}`:'no trade discount set';
+  out.innerHTML=`<div class="res">
+      <div class="top"><b>${esc(rec.sku||rec.jio)}</b><span>JioCode ${esc(rec.jio)}</span>
+        <span>MRP <b>${money(rec.mrp)}</b></span><span>${cur}</span></div>
+      <div class="cols">${priceCol('Default discount',def,dv)}${promo?priceCol('Promotional discount',promo,pv):''}</div>
+    </div>
+    ${(!def.err&&def.td!=null)?guardRail(rec,def.td):''}
+    ${(promo&&!promo.err&&!def.err&&promo.td<def.td)?nb('warn','<b>Promo is less generous than the default.</b> While it runs, customers pay more than they would otherwise — check that is intended.'):''}`;
+}
+let BULK=[];
+function renderBulk(){
+  const ta=document.getElementById('c_bulk'),out=document.getElementById('c_bulkout');
+  if(!ta||!out) return;
+  const START=startDefault();
+  const lines=ta.value.split('\n').map(l=>l.trim()).filter(Boolean);
+  BULK=[];
+  const rows=lines.map(line=>{
+    const parts=line.split(/[\t,]+|\s{2,}/).map(p=>p.trim()).filter(Boolean);
+    let code=parts[0],d=parseFloat(parts[1]),p=parseFloat(parts[2]);
+    if(parts.length>3&&isNaN(d)){
+      const nums=line.match(/(\d+(?:\.\d+)?)\s*$/);
+      code=line.replace(/[,\s]+\d+(?:\.\d+)?\s*$/,'').trim();
+      d=nums?parseFloat(nums[1]):NaN; p=NaN;
+    }
+    const rec=lookup(code);
+    if(!rec) return {line,err:`No match for “${code}”`};
+    const def=tdFromPrice(rec.mrp,isNaN(d)?null:d);
+    if(def.err) return {line,rec,err:def.err};
+    const promo=isNaN(p)?null:tdFromPrice(rec.mrp,p);
+    if(promo&&promo.err) return {line,rec,err:promo.err};
+    const row={rec,def,promo,start:START,promoStart:promo?START:'',promoEnd:''};
+    BULK.push(row); return row;
+  });
+  const ok=rows.filter(r=>!r.err),bad=rows.filter(r=>r.err);
+  if(!rows.length){ out.innerHTML=nb('mut','Paste some lines above, then press Calculate.'); return; }
+  out.innerHTML=`<div class="tw"><table>
+      <thead><tr><th>Seller SKU</th><th>JioCode</th><th class="r">MRP</th><th class="r">Default TD</th><th class="r">Lists at</th><th class="r">Promo TD</th><th class="r">Lists at</th></tr></thead>
+      <tbody>${ok.map(r=>`<tr>
+        <td class="sku">${esc(r.rec.sku)||'—'}</td><td class="sku">${esc(r.rec.jio)}</td>
+        <td class="r num">${money(r.rec.mrp)}</td>
+        <td class="r num">${r.def.td.toFixed(2)}%</td><td class="r num">${money(r.def.actual)}</td>
+        <td class="r num">${r.promo?r.promo.td.toFixed(2)+'%':'—'}</td>
+        <td class="r num">${r.promo?money(r.promo.actual):'—'}</td></tr>`).join('')}</tbody></table></div>
+    ${bad.length?nb('crit',`<b>${bad.length} line${bad.length>1?'s':''} could not be used:</b><br>${bad.map(b=>esc(b.line)+' — '+esc(b.err)).join('<br>')}`):''}
+    <div class="srcnote">${fmt(ok.length)} row${ok.length===1?'':'s'} ready. Start time is set to <code>${START}</code> — change it in the file if you need a different slot.</div>`;
+}
+function wireCalc(){
+  const code=document.getElementById('c_code'); if(!code) return;
+  ['c_code','c_def','c_promo'].forEach(id=>document.getElementById(id).addEventListener('input',renderSingle));
+  renderSingle();
+  const msg=()=>document.getElementById('c_msg');
+  document.getElementById('c_run').onclick=renderBulk;
+  document.getElementById('c_dl').onclick=()=>{
+    if(!BULK.length) renderBulk();
+    if(!BULK.length){ msg().textContent='Nothing to download yet.'; return; }
+    const blob=new Blob([buildAjioCSV(BULK)],{type:'text/csv'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download='ajio_price_update.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+    msg().textContent=`Downloaded ${BULK.length} rows.`;
+  };
+  document.getElementById('c_copy').onclick=async()=>{
+    if(!BULK.length) renderBulk();
+    if(!BULK.length){ msg().textContent='Nothing to copy yet.'; return; }
+    const csv=buildAjioCSV(BULK);
+    try{ await navigator.clipboard.writeText(csv); msg().textContent=`Copied ${BULK.length} rows.`; }
+    catch(e){ const ta=document.getElementById('c_bulk'); ta.value=csv; ta.focus(); ta.select();
+      msg().textContent='Clipboard blocked — the file is in the box above, selected for you.'; }
+  };
+}
+
 /* ---------- wiring ---------- */
 function wire(tab){
+  if(tab==='calc') wireCalc();
   if(tab==='reports'){
     const drop=document.getElementById('drop'),input=document.getElementById('file'),pick=document.getElementById('pick');
     if(drop){
